@@ -121,7 +121,7 @@ if not os.path.exists(save_folder):
 
 # Load custom model
 model_id = f"{args.folder}/checkpoint-{args.epoch}"  # if args.step > 0 else "CompVis/stable-diffusion-v1-4"
-device = "cuda"
+device = "cpu"  # "cuda"
 
 # Load UNet
 unet = get_unet(
@@ -131,13 +131,13 @@ unet = get_unet(
 )
 unet_path = f"{args.folder}/unet_epoch_{args.epoch}.pth"
 print("Loading ", unet_path)
-unet_state_dict = torch.load(unet_path)
+unet_state_dict = torch.load(unet_path, map_location=device)
 new_state_dict = OrderedDict()
 for k, v in unet_state_dict.items():
     name = k.replace("module.", "")  # k[7:] if k[:7] == 'module' else k
     new_state_dict[name] = v
 unet.load_state_dict(new_state_dict)
-unet = unet.cuda()
+unet = unet.to(device)
 
 print("Loading custom model from: ", model_id)
 pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
@@ -146,11 +146,11 @@ pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
 pipe.safety_checker = lambda images, clip_input: (images, False)  # disable safety check
 
 # pipe.unet.load_state_dict(torch.load(f'{save_folder}/unet_epoch_{args.epoch}.pth'))  #'results/epoch_1/unet.pth'))
-# pipe.unet = pipe.unet.cuda()
+# pipe.unet = pipe.unet.to(device)
 
 adapter_chkpt = f"{args.folder}/adapter_{args.epoch}.pth"
 print("Loading ", adapter_chkpt)
-adapter_state_dict = torch.load(adapter_chkpt)
+adapter_state_dict = torch.load(adapter_chkpt, map_location=device)
 new_state_dict = OrderedDict()
 for k, v in adapter_state_dict.items():
     name = k.replace("module.", "")  # name = k[7:] if k[:7] == 'module' else k
@@ -159,18 +159,31 @@ print(pipe.adapter.linear1.weight)
 pipe.adapter = Embedding_Adapter()
 pipe.adapter.load_state_dict(new_state_dict)
 print(pipe.adapter.linear1.weight)
-pipe.adapter = pipe.adapter.cuda()
+pipe.adapter = pipe.adapter.to(device)
 
 if args.custom_vae is not None:
     vae_chkpt = args.custom_vae
     print("Loading custom vae checkpoint from ", vae_chkpt, "...")
-    vae_state_dict = torch.load(vae_chkpt)
+    vae_state_dict = torch.load(vae_chkpt, map_location=device)
     new_state_dict = OrderedDict()
     for k, v in vae_state_dict.items():
         name = k.replace("module.", "")  # name = k[7:] if k[:7] == 'module' else k
+
+        name = name.replace("query.", "to_q.")
+        name = name.replace("key.", "to_k.")
+        name = name.replace("value.", "to_v.")
+        name = name.replace("proj_attn.", "to_out.")
+        name = name.replace(
+            ".mid_block.attentions.0.to_out.", ".mid_block.attentions.0.to_out.0."
+        )
+
         new_state_dict[name] = v
+
     pipe.vae.load_state_dict(new_state_dict)
-    pipe.vae = pipe.vae.cuda()
+    pipe.vae = pipe.vae.to(device)
+
+    if device is "cpu":
+        pipe.vae = pipe.vae.float()
 
 # Change scheduler
 if args.sampler == "DDIM":

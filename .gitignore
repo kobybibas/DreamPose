@@ -3,6 +3,7 @@
 
 demo/sample/poses/*
 demo/custom-chkpts/*
+demo/sample/results/pred_*.png
 
 ### macOS ###
 # General

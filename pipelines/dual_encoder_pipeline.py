@@ -5,14 +5,20 @@ from einops import rearrange
 import numpy as np
 import torch, torchvision
 import torch.nn.functional as F
-from  torch.cuda.amp import autocast
+from torch.cuda.amp import autocast
 from torchvision import transforms
 from torchvision.utils import make_grid
 
 import PIL
 from diffusers.utils import is_accelerate_available
 from packaging import version
-from transformers import CLIPFeatureExtractor, CLIPTextModel, CLIPTokenizer, CLIPVisionModel, CLIPProcessor
+from transformers import (
+    CLIPFeatureExtractor,
+    CLIPTextModel,
+    CLIPTokenizer,
+    CLIPVisionModel,
+    CLIPProcessor,
+)
 
 from diffusers.configuration_utils import FrozenDict
 from diffusers import AutoencoderKL, UNet2DConditionModel
@@ -43,7 +49,10 @@ def preprocess(image):
         w, h = image[0].size
         w, h = map(lambda x: x - x % 32, (w, h))  # resize to integer multiple of 32
 
-        image = [np.array(i.resize((w, h), resample=PIL_INTERPOLATION["lanczos"]))[None, :] for i in image]
+        image = [
+            np.array(i.resize((w, h), resample=PIL_INTERPOLATION["lanczos"]))[None, :]
+            for i in image
+        ]
         image = np.concatenate(image, axis=0)
         image = np.array(image).astype(np.float32) / 255.0
         image = image.transpose(0, 3, 1, 2)
@@ -84,7 +93,7 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.__init__
     def __init__(
         self,
-        #adapter: Embedding_Adapter,
+        # adapter: Embedding_Adapter,
         vae: AutoencoderKL,
         image_encoder: CLIPVisionModel,
         clip_processor: CLIPProcessor,
@@ -100,11 +109,15 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
         safety_checker: None,
         feature_extractor: CLIPFeatureExtractor,
         requires_safety_checker: bool = False,
-        stochastic_sampling: bool = False
+        stochastic_sampling: bool = False,
+        device: str = "cuda",
     ):
         super().__init__()
 
-        if hasattr(scheduler.config, "steps_offset") and scheduler.config.steps_offset != 1:
+        if (
+            hasattr(scheduler.config, "steps_offset")
+            and scheduler.config.steps_offset != 1
+        ):
             deprecation_message = (
                 f"The configuration file of this scheduler: {scheduler} is outdated. `steps_offset`"
                 f" should be set to 1 instead of {scheduler.config.steps_offset}. Please make sure "
@@ -113,12 +126,17 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
                 " it would be very nice if you could open a Pull request for the `scheduler/scheduler_config.json`"
                 " file"
             )
-            deprecate("steps_offset!=1", "1.0.0", deprecation_message, standard_warn=False)
+            deprecate(
+                "steps_offset!=1", "1.0.0", deprecation_message, standard_warn=False
+            )
             new_config = dict(scheduler.config)
             new_config["steps_offset"] = 1
             scheduler._internal_dict = FrozenDict(new_config)
 
-        if hasattr(scheduler.config, "clip_sample") and scheduler.config.clip_sample is True:
+        if (
+            hasattr(scheduler.config, "clip_sample")
+            and scheduler.config.clip_sample is True
+        ):
             deprecation_message = (
                 f"The configuration file of this scheduler: {scheduler} has not set the configuration `clip_sample`."
                 " `clip_sample` should be set to False in the configuration file. Please make sure to update the"
@@ -126,7 +144,9 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
                 " future versions. If you have downloaded this checkpoint from the Hugging Face Hub, it would be very"
                 " nice if you could open a Pull request for the `scheduler/scheduler_config.json` file"
             )
-            deprecate("clip_sample not set", "1.0.0", deprecation_message, standard_warn=False)
+            deprecate(
+                "clip_sample not set", "1.0.0", deprecation_message, standard_warn=False
+            )
             new_config = dict(scheduler.config)
             new_config["clip_sample"] = False
             scheduler._internal_dict = FrozenDict(new_config)
@@ -147,10 +167,10 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
                 " checker. If you do not want to use the safety checker, you can pass `'safety_checker=None'` instead."
             )
 
-        self.adapter = Embedding_Adapter().cuda()
+        self.adapter = Embedding_Adapter().to(self.device)
 
         self.register_modules(
-            #adapter=self.adapter,
+            # adapter=self.adapter,
             vae=vae,
             image_encoder=image_encoder,
             clip_processor=clip_processor,
@@ -160,10 +180,12 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
             feature_extractor=feature_extractor,
         )
         self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-        self.clip_encoder = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32")
+        self.clip_encoder = CLIPVisionModel.from_pretrained(
+            "openai/clip-vit-base-patch32"
+        )
 
-        self.vae = self.vae.cuda()
-        self.unet = self.unet.cuda()
+        self.vae = self.vae.to(self.device)
+        self.unet = self.unet.to(self.device)
         self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
         self.register_to_config(requires_safety_checker=requires_safety_checker)
 
@@ -186,7 +208,13 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
 
         device = torch.device(f"cuda:{gpu_id}")
 
-        for cpu_offloaded_model in [self.unet, self.image_encoder, self.clip_processor, self.vae, self.adapter]:
+        for cpu_offloaded_model in [
+            self.unet,
+            self.image_encoder,
+            self.clip_processor,
+            self.vae,
+            self.adapter,
+        ]:
             if cpu_offloaded_model is not None:
                 cpu_offload(cpu_offloaded_model, device)
 
@@ -215,7 +243,14 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
         return self.device
 
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline._encode_prompt
-    def _encode_image(self, image, device, num_images_per_prompt, do_classifier_free_guidance, negative_prompt):
+    def _encode_image(
+        self,
+        image,
+        device,
+        num_images_per_prompt,
+        do_classifier_free_guidance,
+        negative_prompt,
+    ):
         r"""
         Encodes the prompt into text encoder hidden states.
         Args:
@@ -232,10 +267,13 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
                 if `guidance_scale` is less than `1`).
         """
         batch_size = len(image) if isinstance(image, list) else 1
-        #print("Batch size = ", batch_size)
+        # print("Batch size = ", batch_size)
 
         if isinstance(image, list):
-            uncond_image = [torch.zeros((image[0].size[0], image[0].size[1], 3)) for _ in range(batch_size)]
+            uncond_image = [
+                torch.zeros((image[0].size[0], image[0].size[1], 3))
+                for _ in range(batch_size)
+            ]
         else:
             image = [image]
             uncond_image = [torch.zeros((image[0].size[0], image[0].size[1], 3))]
@@ -243,49 +281,77 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
         with autocast():
             # clip encoder
             inputs = self.processor(images=image, return_tensors="pt")
-            clip_image_embeddings = self.clip_encoder(**inputs).last_hidden_state.cuda()
+            clip_image_embeddings = self.clip_encoder(**inputs).last_hidden_state.to(
+                device
+            )
 
             uncond_inputs = self.processor(images=uncond_image, return_tensors="pt")
-            clip_uncond_image_embeddings = self.clip_encoder(**uncond_inputs).last_hidden_state.cuda()
+            clip_uncond_image_embeddings = self.clip_encoder(
+                **uncond_inputs
+            ).last_hidden_state.to(self.device)
 
             # vae encoder
-            #image = torch.from_numpy(np.array(image).transpose((2,0,1))) 
-            #image = image.cuda().float().unsqueeze(0)
-            image_tensor = torch.tensor([np.array(im).transpose((2,0,1)) for im in image]).cuda().float()
-            vae_image_embeddings = self.vae.encode(image_tensor).latent_dist.sample() * 0.18215
-            #vae_image_embeddings = rearrange(image_embeddings, 'b h w c -> b (h w) c')
+            # image = torch.from_numpy(np.array(image).transpose((2,0,1)))
+            # image = image.to(self.device).float().unsqueeze(0)
+            image_tensor = (
+                torch.tensor([np.array(im).transpose((2, 0, 1)) for im in image])
+                .to(self.device)
+                .float()
+            )
+            vae_image_embeddings = (
+                self.vae.encode(image_tensor).latent_dist.sample() * 0.18215
+            )
+            # vae_image_embeddings = rearrange(image_embeddings, 'b h w c -> b (h w) c')
 
-            #img_shape = image.shape
-            #uncond_image = torch.zeros(img_shape).cuda().float()
-            #uncond_image = uncond_image.cuda().float()
-            uncond_image_tensor = torch.tensor([np.array(im).transpose((2,0,1)) for im in uncond_image]).cuda().float()
-            vae_uncond_image_embeddings = self.vae.encode(uncond_image_tensor).latent_dist.sample() * 0.18215
-            #vae_uncond_image_embeddings = rearrange(uncond_image_embeddings, 'b h w c -> b (h w) c')
+            # img_shape = image.shape
+            # uncond_image = torch.zeros(img_shape).to(self.device).float()
+            # uncond_image = uncond_image.to(self.device).float()
+            uncond_image_tensor = (
+                torch.tensor([np.array(im).transpose((2, 0, 1)) for im in uncond_image])
+                .to(self.device)
+                .float()
+            )
+            vae_uncond_image_embeddings = (
+                self.vae.encode(uncond_image_tensor).latent_dist.sample() * 0.18215
+            )
+            # vae_uncond_image_embeddings = rearrange(uncond_image_embeddings, 'b h w c -> b (h w) c')
 
             # adapt embeddings
             image_embeddings = self.adapter(clip_image_embeddings, vae_image_embeddings)
-            uncond_image_embeddings = self.adapter(clip_uncond_image_embeddings, vae_uncond_image_embeddings)
+            uncond_image_embeddings = self.adapter(
+                clip_uncond_image_embeddings, vae_uncond_image_embeddings
+            )
 
-        #print(image_embeddings.shape)
+        # print(image_embeddings.shape)
         # duplicate text embeddings for each generation per prompt, using mps friendly method
         bs_embed, seq_len, _ = image_embeddings.shape
-        image_embeddings  = image_embeddings.repeat(1, num_images_per_prompt, 1)
-        image_embeddings = image_embeddings.view(bs_embed * num_images_per_prompt, seq_len, -1)
+        image_embeddings = image_embeddings.repeat(1, num_images_per_prompt, 1)
+        image_embeddings = image_embeddings.view(
+            bs_embed * num_images_per_prompt, seq_len, -1
+        )
 
-        bs_embed, seq_len, _ = uncond_image_embeddings .shape
-        uncond_image_embeddings  = uncond_image_embeddings.repeat(1, num_images_per_prompt, 1)
-        uncond_image_embeddings = uncond_image_embeddings.view(bs_embed * num_images_per_prompt, seq_len, -1)
+        bs_embed, seq_len, _ = uncond_image_embeddings.shape
+        uncond_image_embeddings = uncond_image_embeddings.repeat(
+            1, num_images_per_prompt, 1
+        )
+        uncond_image_embeddings = uncond_image_embeddings.view(
+            bs_embed * num_images_per_prompt, seq_len, -1
+        )
 
         # get unconditional embeddings for classifier free guidance
         if do_classifier_free_guidance:
-            image_embeddings = torch.cat([uncond_image_embeddings, image_embeddings, image_embeddings])
+            image_embeddings = torch.cat(
+                [uncond_image_embeddings, image_embeddings, image_embeddings]
+            )
 
         return image_embeddings
 
     # Copied from diffusers.pipelines.stable_diffusion.pipeline_stable_diffusion.StableDiffusionPipeline.run_safety_checker
     def run_safety_checker(self, image, device, dtype):
         if self.safety_checker is not None:
-            safety_checker_input = self.feature_extractor(self.numpy_to_pil(image), return_tensors="pt").to(device)
+            safety_checker_input = self.feature_extractor(
+                self.numpy_to_pil(image), return_tensors="pt"
+            ).to(self.device)
             image, has_nsfw_concept = self.safety_checker(
                 images=image, clip_input=safety_checker_input.pixel_values.to(dtype)
             )
@@ -310,26 +376,35 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
         # eta corresponds to η in DDIM paper: https://arxiv.org/abs/2010.02502
         # and should be between [0, 1]
 
-        accepts_eta = "eta" in set(inspect.signature(self.scheduler.step).parameters.keys())
+        accepts_eta = "eta" in set(
+            inspect.signature(self.scheduler.step).parameters.keys()
+        )
         extra_step_kwargs = {}
         if accepts_eta:
             extra_step_kwargs["eta"] = eta
 
         # check if the scheduler accepts generator
-        accepts_generator = "generator" in set(inspect.signature(self.scheduler.step).parameters.keys())
+        accepts_generator = "generator" in set(
+            inspect.signature(self.scheduler.step).parameters.keys()
+        )
         if accepts_generator:
             extra_step_kwargs["generator"] = generator
         return extra_step_kwargs
 
     def check_inputs(self, prompt, strength, callback_steps):
         if not isinstance(prompt, str) and not isinstance(prompt, list):
-            raise ValueError(f"`prompt` has to be of type `str` or `list` but is {type(prompt)}")
+            raise ValueError(
+                f"`prompt` has to be of type `str` or `list` but is {type(prompt)}"
+            )
 
         if strength < 0 or strength > 1:
-            raise ValueError(f"The value of strength should in [1.0, 1.0] but is {strength}")
+            raise ValueError(
+                f"The value of strength should in [1.0, 1.0] but is {strength}"
+            )
 
         if (callback_steps is None) or (
-            callback_steps is not None and (not isinstance(callback_steps, int) or callback_steps <= 0)
+            callback_steps is not None
+            and (not isinstance(callback_steps, int) or callback_steps <= 0)
         ):
             raise ValueError(
                 f"`callback_steps` has to be a positive integer but is {callback_steps} of type"
@@ -345,14 +420,26 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
 
         return timesteps, num_inference_steps - t_start
 
-    def prepare_latents(self, image, timestep, batch_size, num_images_per_prompt, dtype, device, generator=None):
+    def prepare_latents(
+        self,
+        image,
+        timestep,
+        batch_size,
+        num_images_per_prompt,
+        dtype,
+        device,
+        generator=None,
+    ):
         with autocast():
-            image = image.to(device=device, dtype=dtype).cuda()
+            image = image.to(device=device, dtype=dtype).to(self.device)
             init_latent_dist = self.vae.encode(image).latent_dist
             init_latents = init_latent_dist.sample(generator=generator)
             init_latents = 0.18215 * init_latents
 
-        if batch_size > init_latents.shape[0] and batch_size % init_latents.shape[0] == 0:
+        if (
+            batch_size > init_latents.shape[0]
+            and batch_size % init_latents.shape[0] == 0
+        ):
             # expand init_latents for batch_size
             deprecation_message = (
                 f"You have passed {batch_size} text prompts (`prompt`), but only {init_latents.shape[0]} initial"
@@ -360,10 +447,21 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
                 " that this behavior is deprecated and will be removed in a version 1.0.0. Please make sure to update"
                 " your script to pass as many initial images as text prompts to suppress this warning."
             )
-            deprecate("len(prompt) != len(image)", "1.0.0", deprecation_message, standard_warn=False)
+            deprecate(
+                "len(prompt) != len(image)",
+                "1.0.0",
+                deprecation_message,
+                standard_warn=False,
+            )
             additional_image_per_prompt = batch_size // init_latents.shape[0]
-            init_latents = torch.cat([init_latents] * additional_image_per_prompt * num_images_per_prompt, dim=0)
-        elif batch_size > init_latents.shape[0] and batch_size % init_latents.shape[0] != 0:
+            init_latents = torch.cat(
+                [init_latents] * additional_image_per_prompt * num_images_per_prompt,
+                dim=0,
+            )
+        elif (
+            batch_size > init_latents.shape[0]
+            and batch_size % init_latents.shape[0] != 0
+        ):
             raise ValueError(
                 f"Cannot duplicate `image` of batch size {init_latents.shape[0]} to {batch_size} text prompts."
             )
@@ -372,13 +470,19 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
 
         # add noise to latents using the timesteps
         if self.fixed_noise is None:
-            #print("Latents Shape = ", init_latents.shape, init_latents[0].shape, image.shape[0])
-            single_fixed_noise = torch.randn(init_latents[0].shape, generator=generator, device=device, dtype=dtype)
-            self.fixed_noise = single_fixed_noise.repeat(image.shape[0], 1, 1, 1)#torch.tensor([single_fixed_noise for _ in range(image.shape[0])])
+            # print("Latents Shape = ", init_latents.shape, init_latents[0].shape, image.shape[0])
+            single_fixed_noise = torch.randn(
+                init_latents[0].shape, generator=generator, device=device, dtype=dtype
+            )
+            self.fixed_noise = single_fixed_noise.repeat(
+                image.shape[0], 1, 1, 1
+            )  # torch.tensor([single_fixed_noise for _ in range(image.shape[0])])
         noise = self.fixed_noise
 
         # get latents
-        init_latents = self.scheduler.add_noise(init_latents.cuda(), noise.cuda(), timestep)
+        init_latents = self.scheduler.add_noise(
+            init_latents.to(self.device), noise.to(self.device), timestep
+        )
         latents = init_latents
 
         return latents
@@ -387,15 +491,15 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
     def __call__(
         self,
         prompt: Union[str, List[str]],
-        adapter = None,
+        adapter=None,
         prev_image: Union[torch.FloatTensor, PIL.Image.Image] = None,
         image: Union[torch.FloatTensor, PIL.Image.Image] = None,
         pose: Union[torch.FloatTensor, PIL.Image.Image] = None,
         strength: float = 1.0,
         num_inference_steps: Optional[int] = 100,
         guidance_scale: Optional[float] = 7.5,
-        s1: float = 1.0, # strength of input pose
-        s2: float = 1.0, # strength of input image
+        s1: float = 1.0,  # strength of input pose
+        s2: float = 1.0,  # strength of input image
         negative_prompt: Optional[Union[str, List[str]]] = None,
         num_images_per_prompt: Optional[int] = 1,
         eta: Optional[float] = 0.0,
@@ -404,8 +508,8 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
         return_dict: bool = True,
         callback: Optional[Callable[[int, int, torch.FloatTensor], None]] = None,
         callback_steps: Optional[int] = 1,
-        frames = [],
-        sweep = False,
+        frames=[],
+        sweep=False,
         **kwargs,
     ):
         r"""
@@ -480,7 +584,11 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
 
         # 4. Encode input image: [unconditional, condional, conditional]
         embeddings = self._encode_image(
-            image, device, num_images_per_prompt, do_classifier_free_guidance, negative_prompt
+            image,
+            device,
+            num_images_per_prompt,
+            do_classifier_free_guidance,
+            negative_prompt,
         )
 
         # 5. Preprocess image
@@ -490,12 +598,20 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
 
         # 6. Set timesteps
         self.scheduler.set_timesteps(num_inference_steps, device=device)
-        timesteps, num_inference_steps = self.get_timesteps(num_inference_steps, strength, device)
+        timesteps, num_inference_steps = self.get_timesteps(
+            num_inference_steps, strength, device
+        )
         latent_timestep = timesteps[:1].repeat(batch_size * num_images_per_prompt)
 
         # 7. Prepare latent variables
         latents = self.prepare_latents(
-            image, latent_timestep, batch_size, num_images_per_prompt, embeddings.dtype, device, generator
+            image,
+            latent_timestep,
+            batch_size,
+            num_images_per_prompt,
+            embeddings.dtype,
+            device,
+            generator,
         )
 
         # 8. Prepare extra step kwargs. TODO: Logic should ideally just be moved out of the pipeline
@@ -503,9 +619,9 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
 
         # 9. If sweeping (s1, s2) values, prepare variables
         if sweep:
-            s1_vals = [0, 3, 5, 7, 9] 
+            s1_vals = [0, 3, 5, 7, 9]
             s2_vals = [0, 3, 5, 7, 9]
-            images = [] # store frames
+            images = []  # store frames
         else:
             s1_vals, s2_vals = [s1], [s2]
 
@@ -514,59 +630,97 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
         for s1 in s1_vals:
             for s2 in s2_vals:
                 latents = copy_latents.clone()
-                num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
+                num_warmup_steps = (
+                    len(timesteps) - num_inference_steps * self.scheduler.order
+                )
                 with self.progress_bar(total=num_inference_steps) as progress_bar:
                     for i, t in enumerate(timesteps):
-                        t = t.cuda()
+                        t = t.to(self.device)
 
                         # If stochastic sampling enabled, randomly select from previous images
                         if self.stochastic_sampling:
                             idx = np.random.choice(range(len(frames)))
                             input_image = [frames[idx] for _ in range(len(image))]
-                            #print("Selecting conditioning image #", idx)
+                            # print("Selecting conditioning image #", idx)
                             embeddings = self._encode_image(
-                                input_image, device, num_images_per_prompt, do_classifier_free_guidance, negative_prompt
+                                input_image,
+                                device,
+                                num_images_per_prompt,
+                                do_classifier_free_guidance,
+                                negative_prompt,
                             )
                             input_image = preprocess(input_image)
 
                         # expand the latents if we are doing classifier free guidance
-                        latent_model_input = torch.cat([latents] * 3) if do_classifier_free_guidance else latents
-                        latent_model_input = self.scheduler.scale_model_input(latent_model_input, t)
+                        latent_model_input = (
+                            torch.cat([latents] * 3)
+                            if do_classifier_free_guidance
+                            else latents
+                        )
+                        latent_model_input = self.scheduler.scale_model_input(
+                            latent_model_input, t
+                        )
 
                         # Add pose to noisy latents
                         _, _, h, w = latent_model_input.shape
                         if do_classifier_free_guidance:
-                            pose_input = torch.cat([torch.zeros(pose.shape), pose, torch.zeros(pose.shape)]) 
+                            pose_input = torch.cat(
+                                [torch.zeros(pose.shape), pose, torch.zeros(pose.shape)]
+                            )
                         else:
-                            pose_input = torch.cat([pose, pose, pose]) 
-                        latent_model_input = torch.cat((latent_model_input.cuda(), F.interpolate(pose_input, (h,w)).cuda()), 1)
+                            pose_input = torch.cat([pose, pose, pose])
+                        latent_model_input = torch.cat(
+                            (
+                                latent_model_input.to(self.device),
+                                F.interpolate(pose_input, (h, w)).to(self.device),
+                            ),
+                            1,
+                        )
 
                         # predict the noise residual
-                        noise_pred = self.unet(latent_model_input, t, encoder_hidden_states=embeddings.cuda()).sample
+                        noise_pred = self.unet(
+                            latent_model_input,
+                            t,
+                            encoder_hidden_states=embeddings.to(self.device),
+                        ).sample
 
                         # perform guidance
                         if do_classifier_free_guidance:
-                            #print(f"s1={s1}, s2={s2}")
-                            noise_pred_uncond, noise_pred_, noise_pred_img_only = noise_pred.chunk(3)
-                            noise_pred = noise_pred_uncond + \
-                                         s1 * (noise_pred_img_only - noise_pred_uncond) + \
-                                         s2 * (noise_pred_ - noise_pred_img_only) 
+                            # print(f"s1={s1}, s2={s2}")
+                            (
+                                noise_pred_uncond,
+                                noise_pred_,
+                                noise_pred_img_only,
+                            ) = noise_pred.chunk(3)
+                            noise_pred = (
+                                noise_pred_uncond
+                                + s1 * (noise_pred_img_only - noise_pred_uncond)
+                                + s2 * (noise_pred_ - noise_pred_img_only)
+                            )
 
                         # compute the previous noisy sample x_t -> x_t-1
-                        latents = self.scheduler.step(noise_pred.cuda(), t, latents.cuda(), **extra_step_kwargs).prev_sample
+                        latents = self.scheduler.step(
+                            noise_pred.to(self.device),
+                            t,
+                            latents.to(self.device),
+                            **extra_step_kwargs,
+                        ).prev_sample
 
                         # call the callback, if provided
-                        if i == len(timesteps) - 1 or ((i + 1) > num_warmup_steps and (i + 1) % self.scheduler.order == 0):
+                        if i == len(timesteps) - 1 or (
+                            (i + 1) > num_warmup_steps
+                            and (i + 1) % self.scheduler.order == 0
+                        ):
                             progress_bar.update()
                             if callback is not None and i % callback_steps == 0:
                                 callback(i, t, latents)
 
                 # 11. Post-processing
-                latents = latents[:,:4, :, :].cuda() #.float()
+                latents = latents[:, :4, :, :].to(self.device)  # .float()
                 image = self.decode_latents(latents)
 
-                #print(len(image)) # 1
-                #print(image[0].shape) # 640, 512, 3
+                # print(len(image)) # 1
+                # print(image[0].shape) # 640, 512, 3
 
                 # 13. Convert to PIL
                 if output_type == "pil":
@@ -579,14 +733,13 @@ class StableDiffusionImg2ImgPipeline(DiffusionPipeline):
         if sweep:
             Grid = make_grid(images, nrow=len(s2_vals))
             image = [torchvision.transforms.ToPILImage()(Grid)]
-            #image = Grid
-            #print("Grid complete.")
+            # image = Grid
+            # print("Grid complete.")
 
         # 14. Run safety checker
-        #image, has_nsfw_concept = self.run_safety_checker(image, device, embeddings.dtype)
+        # image, has_nsfw_concept = self.run_safety_checker(image, device, embeddings.dtype)
 
         if not return_dict:
             return (image, False)
 
         return StableDiffusionPipelineOutput(images=image, nsfw_content_detected=False)
-
