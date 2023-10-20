@@ -149,6 +149,7 @@ print("Loading custom model from: ", model_id)
 pipe = StableDiffusionImg2ImgPipeline.from_pretrained(
     model_id, unet=unet, torch_dtype=torch.float16, revision="fp16"
 )
+pipe = pipe.to(device)
 pipe.safety_checker = lambda images, clip_input: (images, False)  # disable safety check
 
 # pipe.unet.load_state_dict(torch.load(f'{save_folder}/unet_epoch_{args.epoch}.pth'))  #'results/epoch_1/unet.pth'))

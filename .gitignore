@@ -4,6 +4,9 @@
 demo/sample/poses/*
 demo/custom-chkpts/*
 demo/sample/results/pred_*.png
+*checkpoints/*
+*.jpg
+
 
 ### macOS ###
 # General

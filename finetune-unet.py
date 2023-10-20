@@ -28,7 +28,6 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 from tqdm.auto import tqdm
 from transformers import (
-    CLIPFeatureExtractor,
     CLIPProcessor,
     CLIPTokenizer,
     CLIPVisionModel,
@@ -57,11 +56,13 @@ def get_full_repo_name(
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
+    print(args)
+    print(logging_dir)
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         mixed_precision=args.mixed_precision,
         log_with="tensorboard",
-        logging_dir=logging_dir,
+        project_dir=logging_dir,
     )
 
     # Currently, it's not possible to do gradient accumulation when training two models with accelerate.accumulate
