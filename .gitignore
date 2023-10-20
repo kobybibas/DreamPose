@@ -1,8 +1,12 @@
 # Created by https://www.toptal.com/developers/gitignore/api/macos,python,vs
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos,python,vs
 
+demo/samples/poses/*
+
+
 ### macOS ###
 # General
+*.DS_Store*
 .DS_Store
 .AppleDouble
 .LSOverride
