@@ -27,7 +27,12 @@ from huggingface_hub import HfFolder, Repository, whoami
 from PIL import Image
 from torchvision import transforms
 from tqdm.auto import tqdm
-from transformers import CLIPFeatureExtractor, CLIPTokenizer, CLIPProcessor, CLIPVisionModel
+from transformers import (
+    CLIPFeatureExtractor,
+    CLIPTokenizer,
+    CLIPProcessor,
+    CLIPVisionModel,
+)
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -38,7 +43,10 @@ from datasets.ubc_deepfashion_dataset import DreamPoseDataset
 from pipelines.dual_encoder_pipeline import StableDiffusionImg2ImgPipeline
 from models.unet_dual_encoder import get_unet, Embedding_Adapter
 
-def get_full_repo_name(model_id: str, organization: Optional[str] = None, token: Optional[str] = None):
+
+def get_full_repo_name(
+    model_id: str, organization: Optional[str] = None, token: Optional[str] = None
+):
     if token is None:
         token = HfFolder.get_token()
     if organization is None:
@@ -47,10 +55,11 @@ def get_full_repo_name(model_id: str, organization: Optional[str] = None, token:
     else:
         return f"{organization}/{model_id}"
 
+
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
-    writer = SummaryWriter(f'results/logs/{args.run_name}')
+    writer = SummaryWriter(f"results/logs/{args.run_name}")
 
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
@@ -62,7 +71,11 @@ def main(args):
     # Currently, it's not possible to do gradient accumulation when training two models with accelerate.accumulate
     # This will be enabled soon in accelerate. For now, we don't allow gradient accumulation when training two models.
     # TODO (patil-suraj): Remove this check when gradient accumulation with two models is enabled in accelerate.
-    if args.train_text_encoder and args.gradient_accumulation_steps > 1 and accelerator.num_processes > 1:
+    if (
+        args.train_text_encoder
+        and args.gradient_accumulation_steps > 1
+        and accelerator.num_processes > 1
+    ):
         raise ValueError(
             "Gradient accumulation is not supported when training the text encoder in distributed training. "
             "Please set gradient_accumulation_steps to 1. This feature will be supported in the future."
@@ -75,7 +88,9 @@ def main(args):
     if accelerator.is_main_process:
         if args.push_to_hub:
             if args.hub_model_id is None:
-                repo_name = get_full_repo_name(Path(args.output_dir).name, token=args.hub_token)
+                repo_name = get_full_repo_name(
+                    Path(args.output_dir).name, token=args.hub_token
+                )
             else:
                 repo_name = args.hub_model_id
             repo = Repository(args.output_dir, clone_from=repo_name)
@@ -89,27 +104,31 @@ def main(args):
             os.makedirs(args.output_dir, exist_ok=True)
 
     # Load CLIP Image Encoder
-    clip_encoder = CLIPVisionModel.from_pretrained("openai/clip-vit-base-patch32").cuda()
+    clip_encoder = CLIPVisionModel.from_pretrained(
+        "openai/clip-vit-base-patch32"
+    ).cuda()
     clip_encoder.requires_grad_(False)
     clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
 
     # Load models and create wrapper for stable diffusion
     vae = AutoencoderKL.from_pretrained(
-                "CompVis/stable-diffusion-v1-4",
-                subfolder="vae",
-                revision="ebb811dd71cdc38a204ecbdd6ac5d580f529fd8c"
-            )
+        "CompVis/stable-diffusion-v1-4",
+        subfolder="vae",
+        revision="ebb811dd71cdc38a204ecbdd6ac5d580f529fd8c",
+    )
 
     # Load pretrained UNet layers
-    unet = get_unet3(args.pretrained_model_name_or_path, args.revision, resolution=args.resolution)
-    #unet = get_unet('CompVis/stable-diffusion-v1-4')
+    unet = get_unet3(
+        args.pretrained_model_name_or_path, args.revision, resolution=args.resolution
+    )
+    # unet = get_unet('CompVis/stable-diffusion-v1-4')
 
     if args.custom_chkpt is not None:
         print("Loading ", args.custom_chkpt)
         unet_state_dict = torch.load(args.custom_chkpt)
         new_state_dict = OrderedDict()
         for k, v in unet_state_dict.items():
-            name = k[7:] if k[:7] == 'module' else k 
+            name = k[7:] if k[:7] == "module" else k
             new_state_dict[name] = v
         unet.load_state_dict(new_state_dict)
         unet = unet.cuda()
@@ -118,17 +137,17 @@ def main(args):
     adapter = Embedding_Adapter(input_nc=1280, output_nc=1280)
 
     if args.custom_chkpt is not None:
-        adapter_chkpt = args.custom_chkpt.replace('unet_epoch', 'adapter')
+        adapter_chkpt = args.custom_chkpt.replace("unet_epoch", "adapter")
         print("Loading ", adapter_chkpt)
         adapter_state_dict = torch.load(adapter_chkpt)
         new_state_dict = OrderedDict()
         for k, v in adapter_state_dict.items():
-            name = k[7:] if k[:7] == 'module' else k 
+            name = k[7:] if k[:7] == "module" else k
             new_state_dict[name] = v
         adapter.load_state_dict(new_state_dict)
         adapter = adapter.cuda()
 
-    #adapter.requires_grad_(True)
+    # adapter.requires_grad_(True)
 
     vae.requires_grad_(False)
 
@@ -138,7 +157,10 @@ def main(args):
 
     if args.scale_lr:
         args.learning_rate = (
-            args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
+            args.learning_rate
+            * args.gradient_accumulation_steps
+            * args.train_batch_size
+            * accelerator.num_processes
         )
 
     # Use 8-bit Adam for lower memory usage or to fine-tune the model in 16GB GPUs
@@ -154,8 +176,9 @@ def main(args):
     else:
         optimizer_class = torch.optim.AdamW
 
-    params_to_optimize = (
-        itertools.chain(unet.parameters(), adapter.parameters(),)
+    params_to_optimize = itertools.chain(
+        unet.parameters(),
+        adapter.parameters(),
     )
 
     optimizer = optimizer_class(
@@ -166,7 +189,9 @@ def main(args):
         eps=args.adam_epsilon,
     )
 
-    noise_scheduler = DDPMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
+    noise_scheduler = DDPMScheduler.from_config(
+        args.pretrained_model_name_or_path, subfolder="scheduler"
+    )
 
     # Load the tokenizer
     if args.tokenizer_name:
@@ -208,38 +233,44 @@ def main(args):
 
         # Dropout
         p = random.random()
-        if p <= args.dropout_rate / 3: # dropout pose
+        if p <= args.dropout_rate / 3:  # dropout pose
             poses = torch.zeros(poses.shape)
-        elif p <= 2*args.dropout_rate / 3: # dropout image
+        elif p <= 2 * args.dropout_rate / 3:  # dropout image
             frame_i = torch.zeros(frame_i.shape)
-            #frame_k = torch.zeros(frame_k.shape)
-        elif p <= args.dropout_rate: # dropout image and pose
+            # frame_k = torch.zeros(frame_k.shape)
+        elif p <= args.dropout_rate:  # dropout image and pose
             poses = torch.zeros(poses.shape)
             frame_i = torch.zeros(frame_i.shape)
-            #frame_k = torch.zeros(frame_k.shape)
+            # frame_k = torch.zeros(frame_k.shape)
 
         frame_i = frame_i.to(memory_format=torch.contiguous_format).float()
         frame_j = frame_j.to(memory_format=torch.contiguous_format).float()
-        #frame_k = frame_k.to(memory_format=torch.contiguous_format).float()
+        # frame_k = frame_k.to(memory_format=torch.contiguous_format).float()
         poses = poses.to(memory_format=torch.contiguous_format).float()
-        #joints = joints.to(memory_format=torch.contiguous_format).float()
+        # joints = joints.to(memory_format=torch.contiguous_format).float()
 
         batch = {
             "frame_i": frame_i,
             "frame_j": frame_j,
-            #"frame_k": frame_k,
+            # "frame_k": frame_k,
             "poses": poses,
-            #"joints_j": joints,
+            # "joints_j": joints,
         }
         return batch
 
     train_dataloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.train_batch_size, shuffle=True, collate_fn=collate_fn, num_workers=1
+        train_dataset,
+        batch_size=args.train_batch_size,
+        shuffle=True,
+        collate_fn=collate_fn,
+        num_workers=1,
     )
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(
+        len(train_dataloader) / args.gradient_accumulation_steps
+    )
     if args.max_train_steps is None:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
@@ -272,7 +303,9 @@ def main(args):
     vae.to(accelerator.device, dtype=weight_dtype)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(
+        len(train_dataloader) / args.gradient_accumulation_steps
+    )
     if overrode_max_train_steps:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     # Afterwards we recalculate our number of training epochs
@@ -284,18 +317,26 @@ def main(args):
         accelerator.init_trackers("dreambooth", config=vars(args))
 
     # Train!
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    total_batch_size = (
+        args.train_batch_size
+        * accelerator.num_processes
+        * args.gradient_accumulation_steps
+    )
 
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {len(train_dataset)}")
     logger.info(f"  Num batches each epoch = {len(train_dataloader)}")
     logger.info(f"  Num Epochs = {args.num_train_epochs}")
     logger.info(f"  Instantaneous batch size per device = {args.train_batch_size}")
-    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+    logger.info(
+        f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}"
+    )
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
     # Only show the progress bar once on each machine.
-    progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
+    progress_bar = tqdm(
+        range(args.max_train_steps), disable=not accelerator.is_local_main_process
+    )
     progress_bar.set_description("Steps")
     global_step = 0
 
@@ -314,7 +355,7 @@ def main(args):
         return target_images
 
     def visualize_dp(im, dp):
-        im = im.transpose((1,2,0))
+        im = im.transpose((1, 2, 0))
         hsv = np.zeros(im.shape, dtype=np.uint8)
         hsv[..., 1] = 255
 
@@ -324,7 +365,7 @@ def main(args):
         hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
         bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
-        bgr = bgr.transpose((2,0,1))
+        bgr = bgr.transpose((2, 0, 1))
         return bgr
 
     latest_chkpt_step = 0
@@ -334,11 +375,13 @@ def main(args):
         first_batch = True
         for step, batch in enumerate(train_dataloader):
             if first_batch and latest_chkpt_step is not None:
-                #os.system(f"python test_img2img.py --step {latest_chkpt_step} --strength 0.8")
+                # os.system(f"python test_img2img.py --step {latest_chkpt_step} --strength 0.8")
                 first_batch = False
             with accelerator.accumulate(unet):
                 # Convert images to latent space
-                latents = vae.encode(batch["frame_j"].to(dtype=weight_dtype)).latent_dist.sample()
+                latents = vae.encode(
+                    batch["frame_j"].to(dtype=weight_dtype)
+                ).latent_dist.sample()
                 latents = latents * 0.18215
 
                 # Sample noise that we'll add to the latents
@@ -346,7 +389,12 @@ def main(args):
                 bsz = latents.shape[0]
 
                 # Sample a random timestep for each image
-                timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (bsz,), device=latents.device)
+                timesteps = torch.randint(
+                    0,
+                    noise_scheduler.config.num_train_timesteps,
+                    (bsz,),
+                    device=latents.device,
+                )
                 timesteps = timesteps.long()
 
                 # Add noise to the latents according to the noise magnitude at each timestep
@@ -355,25 +403,34 @@ def main(args):
 
                 # Concatenate pose with noise
                 _, _, h, w = noisy_latents.shape
-                noisy_latents = torch.cat((noisy_latents, F.interpolate(batch['poses'], (h,w))), 1)
+                noisy_latents = torch.cat(
+                    (noisy_latents, F.interpolate(batch["poses"], (h, w))), 1
+                )
 
                 # Get CLIP embeddings
-                inputs = clip_processor(images=list(batch['frame_i'].to(latents.device)), return_tensors="pt")
+                inputs = clip_processor(
+                    images=list(batch["frame_i"].to(latents.device)),
+                    return_tensors="pt",
+                )
                 inputs = {k: v.to(latents.device) for k, v in inputs.items()}
-                clip_hidden_states =  clip_encoder(**inputs).last_hidden_state.to(latents.device)
+                clip_hidden_states = clip_encoder(**inputs).last_hidden_state.to(
+                    latents.device
+                )
 
-                #print("clip states shape = ", clip_hidden_states.shape)
+                # print("clip states shape = ", clip_hidden_states.shape)
 
                 # Get VAE embeddings
-                #print("frame i shape = ", batch['frame_i'].shape)
-                image = batch['frame_i'].to(device=latents.device, dtype=weight_dtype)
+                # print("frame i shape = ", batch['frame_i'].shape)
+                image = batch["frame_i"].to(device=latents.device, dtype=weight_dtype)
                 vae_hidden_states = vae.encode(image).latent_dist.sample() * 0.18215
-                #print("vae states shape = ", vae_hidden_states.shape)
+                # print("vae states shape = ", vae_hidden_states.shape)
 
                 encoder_hidden_states = adapter(clip_hidden_states, vae_hidden_states)
 
                 # Predict the noise residual
-                model_pred = unet(noisy_latents, timesteps, encoder_hidden_states).sample
+                model_pred = unet(
+                    noisy_latents, timesteps, encoder_hidden_states
+                ).sample
 
                 # Get the target for loss depending on the prediction type
                 if noise_scheduler.config.prediction_type == "epsilon":
@@ -381,7 +438,9 @@ def main(args):
                 elif noise_scheduler.config.prediction_type == "v_prediction":
                     target = noise_scheduler.get_velocity(latents, noise, timesteps)
                 else:
-                    raise ValueError(f"Unknown prediction type {noise_scheduler.config.prediction_type}")
+                    raise ValueError(
+                        f"Unknown prediction type {noise_scheduler.config.prediction_type}"
+                    )
 
                 if args.with_prior_preservation:
                     # Chunk the noise and model_pred into two parts and compute the loss on each part separately.
@@ -389,21 +448,27 @@ def main(args):
                     target, target_prior = torch.chunk(target, 2, dim=0)
 
                     # Compute instance loss
-                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="none").mean([1, 2, 3]).mean()
+                    loss = (
+                        F.mse_loss(model_pred.float(), target.float(), reduction="none")
+                        .mean([1, 2, 3])
+                        .mean()
+                    )
 
                     # Compute prior loss
-                    prior_loss = F.mse_loss(model_pred_prior.float(), target_prior.float(), reduction="mean")
+                    prior_loss = F.mse_loss(
+                        model_pred_prior.float(), target_prior.float(), reduction="mean"
+                    )
 
                     # Add the prior loss to the instance loss.
                     loss = loss + args.prior_loss_weight * prior_loss
                 else:
-                    loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
+                    loss = F.mse_loss(
+                        model_pred.float(), target.float(), reduction="mean"
+                    )
 
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
-                    params_to_clip = (
-                        itertools.chain(unet.parameters())
-                    )
+                    params_to_clip = itertools.chain(unet.parameters())
                     accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
                 optimizer.step()
                 lr_scheduler.step()
@@ -422,30 +487,41 @@ def main(args):
                 plt.figure()
                 plt.plot(range(len(weights)), weights)
                 plt.title(f"VAE Weights = {weights[50:]}")
-                #plt.hist(weights)
-                writer.add_figure('embedding_weights', plt.gcf(), global_step=global_step)
-            #add_image("emebedding_weights", h, global_step=global_step)
-            #writer.add_histogram('embedding_weights', weights, global_step=global_step, bins='tensorflow')
+                # plt.hist(weights)
+                writer.add_figure(
+                    "embedding_weights", plt.gcf(), global_step=global_step
+                )
+            # add_image("emebedding_weights", h, global_step=global_step)
+            # writer.add_histogram('embedding_weights', weights, global_step=global_step, bins='tensorflow')
             writer.add_scalar("loss/train", loss.detach().item(), global_step)
             if global_step % 50 == 0:
                 with torch.no_grad():
-                    pred_latents = noisy_latents[:,:4,:,:] - model_pred
+                    pred_latents = noisy_latents[:, :4, :, :] - model_pred
                     pred_images = latents2img(pred_latents)
-                    noise_viz = latents2img(noisy_latents[:,:4,:,:])
+                    noise_viz = latents2img(noisy_latents[:, :4, :, :])
                     target = inputs2img(batch["frame_j"])
                     input_img = inputs2img(batch["frame_i"])
-                    middle_pose = visualize_dp(target[0], batch['poses'][0][4:6])
+                    middle_pose = visualize_dp(target[0], batch["poses"][0][4:6])
 
                     pose_viz = []
                     for pose_id in range(0, 5):
-                        start, end = 2*pose_id, 2*(pose_id+1)
-                        pose = visualize_dp(target[0], batch['poses'][0][start:end])
+                        start, end = 2 * pose_id, 2 * (pose_id + 1)
+                        pose = visualize_dp(target[0], batch["poses"][0][start:end])
                         pose_viz.append(pose)
 
                     pose_viz = np.concatenate(pose_viz, axis=2)
-                    frame_viz = np.concatenate([input_img[0], noise_viz[0], middle_pose, pred_images[0], target[0]], axis=2)
+                    frame_viz = np.concatenate(
+                        [
+                            input_img[0],
+                            noise_viz[0],
+                            middle_pose,
+                            pred_images[0],
+                            target[0],
+                        ],
+                        axis=2,
+                    )
                     viz = np.concatenate([frame_viz, pose_viz], axis=1)
-                    writer.add_image(f'train/pred_img', viz, global_step=global_step)
+                    writer.add_image(f"train/pred_img", viz, global_step=global_step)
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
@@ -458,17 +534,19 @@ def main(args):
             if accelerator.is_main_process and global_step % 500 == 0:
                 pipeline = StableDiffusionImg2ImgPipeline.from_pretrained(
                     args.pretrained_model_name_or_path,
-                    #adapter=accelerator.unwrap_model(adapter),
+                    # adapter=accelerator.unwrap_model(adapter),
                     unet=accelerator.unwrap_model(unet),
                     tokenizer=tokenizer,
                     image_encoder=accelerator.unwrap_model(clip_encoder),
                     clip_processor=accelerator.unwrap_model(clip_processor),
                     revision=args.revision,
                 )
-                pipeline.save_pretrained(os.path.join(args.output_dir, f'checkpoint-{epoch}'))
-                model_path = args.output_dir+f'/unet_epoch_{epoch}.pth'
+                pipeline.save_pretrained(
+                    os.path.join(args.output_dir, f"checkpoint-{epoch}")
+                )
+                model_path = args.output_dir + f"/unet_epoch_{epoch}.pth"
                 torch.save(unet.state_dict(), model_path)
-                adapter_path = args.output_dir+f'/adapter_{epoch}.pth'
+                adapter_path = args.output_dir + f"/adapter_{epoch}.pth"
                 torch.save(adapter.state_dict(), adapter_path)
 
         accelerator.wait_for_everyone()

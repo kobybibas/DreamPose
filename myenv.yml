@@ -1,0 +1,19 @@
+name: DreamPose
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - diffusers-torch
+  - pip
+  - matplotlib
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - jupyterlab
+  - tqdm
+  - pipreqs
+  - black
+  - charset-normalizer
+  - einops
+prefix: /Users/kbibas/miniconda3/envs/DreamPose

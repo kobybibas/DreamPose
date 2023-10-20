@@ -4,19 +4,17 @@ import itertools
 import math
 import os
 import random
+from collections import OrderedDict
 from pathlib import Path
 from typing import Optional
-from collections import OrderedDict
 
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint
-from torch.utils.data import Dataset
-import torch.nn as nn
-import numpy as np
-import matplotlib.pyplot as plt
-import cv2
-
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import set_seed
@@ -24,20 +22,28 @@ from diffusers import AutoencoderKL, DDPMScheduler, UNet2DConditionModel
 from diffusers.optimization import get_scheduler
 from huggingface_hub import HfFolder, Repository, whoami
 from PIL import Image
+from torch.utils.data import Dataset
+from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms
 from tqdm.auto import tqdm
-from transformers import CLIPFeatureExtractor, CLIPTokenizer, CLIPProcessor, CLIPVisionModel
-
-from torch.utils.tensorboard import SummaryWriter
+from transformers import (
+    CLIPFeatureExtractor,
+    CLIPProcessor,
+    CLIPTokenizer,
+    CLIPVisionModel,
+)
 
 logger = get_logger(__name__)
 
-from utils.parse_args import parse_args
 from datasets.train_vae_dataset import DreamPoseDataset
+from models.unet_dual_encoder import Embedding_Adapter, get_unet
 from pipelines.dual_encoder_pipeline import StableDiffusionImg2ImgPipeline
-from models.unet_dual_encoder import get_unet, Embedding_Adapter
+from utils.parse_args import parse_args
 
-def get_full_repo_name(model_id: str, organization: Optional[str] = None, token: Optional[str] = None):
+
+def get_full_repo_name(
+    model_id: str, organization: Optional[str] = None, token: Optional[str] = None
+):
     if token is None:
         token = HfFolder.get_token()
     if organization is None:
@@ -46,10 +52,11 @@ def get_full_repo_name(model_id: str, organization: Optional[str] = None, token:
     else:
         return f"{organization}/{model_id}"
 
+
 def main(args):
     logging_dir = Path(args.output_dir, args.logging_dir)
 
-    writer = SummaryWriter(f'results/logs/{args.run_name}')
+    writer = SummaryWriter(f"results/logs/{args.run_name}")
 
     accelerator = Accelerator(
         gradient_accumulation_steps=args.gradient_accumulation_steps,
@@ -61,7 +68,11 @@ def main(args):
     # Currently, it's not possible to do gradient accumulation when training two models with accelerate.accumulate
     # This will be enabled soon in accelerate. For now, we don't allow gradient accumulation when training two models.
     # TODO (patil-suraj): Remove this check when gradient accumulation with two models is enabled in accelerate.
-    if args.train_text_encoder and args.gradient_accumulation_steps > 1 and accelerator.num_processes > 1:
+    if (
+        args.train_text_encoder
+        and args.gradient_accumulation_steps > 1
+        and accelerator.num_processes > 1
+    ):
         raise ValueError(
             "Gradient accumulation is not supported when training the text encoder in distributed training. "
             "Please set gradient_accumulation_steps to 1. This feature will be supported in the future."
@@ -71,7 +82,7 @@ def main(args):
         set_seed(args.seed)
 
     # initialize perecpetual loss
-    #lpips_loss = lpips.LPIPS(net='vgg').cuda()
+    # lpips_loss = lpips.LPIPS(net='vgg').cuda()
 
     if args.with_prior_preservation:
         class_images_dir = Path(args.class_data_dir)
@@ -80,7 +91,9 @@ def main(args):
         cur_class_images = len(list(class_images_dir.iterdir()))
 
         if cur_class_images < args.num_class_images:
-            torch_dtype = torch.float16 if accelerator.device.type == "cuda" else torch.float32
+            torch_dtype = (
+                torch.float16 if accelerator.device.type == "cuda" else torch.float32
+            )
             pipeline = StableDiffusionPipeline.from_pretrained(
                 args.pretrained_model_name_or_path,
                 torch_dtype=torch_dtype,
@@ -101,7 +114,9 @@ def main(args):
     if accelerator.is_main_process:
         if args.push_to_hub:
             if args.hub_model_id is None:
-                repo_name = get_full_repo_name(Path(args.output_dir).name, token=args.hub_token)
+                repo_name = get_full_repo_name(
+                    Path(args.output_dir).name, token=args.hub_token
+                )
             else:
                 repo_name = args.hub_model_id
             repo = Repository(args.output_dir, clone_from=repo_name)
@@ -134,17 +149,19 @@ def main(args):
     weights = unet.conv_in.weight.clone()
     unet.conv_in = nn.Conv2d(6, weights.shape[0], kernel_size=3, padding=(1, 1))
     with torch.no_grad():
-        unet.conv_in.weight[:, :4] = weights # original weights
-        unet.conv_in.weight[:, 4:] = torch.zeros(unet.conv_in.weight[:, 4:].shape) # new weights initialized to zero
+        unet.conv_in.weight[:, :4] = weights  # original weights
+        unet.conv_in.weight[:, 4:] = torch.zeros(
+            unet.conv_in.weight[:, 4:].shape
+        )  # new weights initialized to zero
     unet.requires_grad_(False)
 
     # set VAE decoder to be trainable
     # Load VAE Pretrained Model
     if args.custom_chkpt is not None:
-        vae_state_dict = torch.load(args.custom_chkpt) #'results/epoch_1/unet.pth'))
+        vae_state_dict = torch.load(args.custom_chkpt)  #'results/epoch_1/unet.pth'))
         new_state_dict = OrderedDict()
         for k, v in vae_state_dict.items():
-            name = k[7:] if k[:7] == 'module' else k # remove `module.`
+            name = k[7:] if k[:7] == "module" else k  # remove `module.`
             new_state_dict[name] = v
         vae.load_state_dict(new_state_dict)
         vae = vae.cuda()
@@ -152,19 +169,24 @@ def main(args):
     vae.requires_grad_(False)
     vae_trainable_params = []
     for name, param in vae.named_parameters():
-        if 'decoder' in name:
+        if "decoder" in name:
             param.requires_grad = True
             vae_trainable_params.append(param)
 
-    print(f"VAE total params = {len(list(vae.named_parameters()))}, trainable params = {len(vae_trainable_params)}")
+    print(
+        f"VAE total params = {len(list(vae.named_parameters()))}, trainable params = {len(vae_trainable_params)}"
+    )
     image_encoder.requires_grad_(False)
 
     if args.gradient_checkpointing:
-        vae.gradient_checkpointing_enable() # uncomment if training clip model
+        vae.gradient_checkpointing_enable()  # uncomment if training clip model
 
     if args.scale_lr:
         args.learning_rate = (
-            args.learning_rate * args.gradient_accumulation_steps * args.train_batch_size * accelerator.num_processes
+            args.learning_rate
+            * args.gradient_accumulation_steps
+            * args.train_batch_size
+            * accelerator.num_processes
         )
 
     # Use 8-bit Adam for lower memory usage or to fine-tune the model in 16GB GPUs
@@ -180,9 +202,7 @@ def main(args):
     else:
         optimizer_class = torch.optim.AdamW
 
-    params_to_optimize = (
-        itertools.chain(vae_trainable_params)
-    )
+    params_to_optimize = itertools.chain(vae_trainable_params)
     optimizer = optimizer_class(
         params_to_optimize,
         lr=args.learning_rate,
@@ -191,8 +211,9 @@ def main(args):
         eps=args.adam_epsilon,
     )
 
-    noise_scheduler = DDPMScheduler.from_config(args.pretrained_model_name_or_path, subfolder="scheduler")
-
+    noise_scheduler = DDPMScheduler.from_config(
+        args.pretrained_model_name_or_path, subfolder="scheduler"
+    )
 
     train_dataset = DreamPoseDataset(
         instance_data_root=args.instance_data_dir,
@@ -219,12 +240,18 @@ def main(args):
         return batch
 
     train_dataloader = torch.utils.data.DataLoader(
-        train_dataset, batch_size=args.train_batch_size, shuffle=True, collate_fn=collate_fn, num_workers=1
+        train_dataset,
+        batch_size=args.train_batch_size,
+        shuffle=True,
+        collate_fn=collate_fn,
+        num_workers=1,
     )
 
     # Scheduler and math around the number of training steps.
     overrode_max_train_steps = False
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(
+        len(train_dataloader) / args.gradient_accumulation_steps
+    )
     if args.max_train_steps is None:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
         overrode_max_train_steps = True
@@ -237,8 +264,8 @@ def main(args):
     )
 
     unet, vae, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(
-            unet, vae, optimizer, train_dataloader, lr_scheduler
-        )
+        unet, vae, optimizer, train_dataloader, lr_scheduler
+    )
 
     weight_dtype = torch.float32
     if accelerator.mixed_precision == "fp16":
@@ -251,7 +278,9 @@ def main(args):
         image_encoder.to(accelerator.device, dtype=weight_dtype)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
+    num_update_steps_per_epoch = math.ceil(
+        len(train_dataloader) / args.gradient_accumulation_steps
+    )
     if overrode_max_train_steps:
         args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
     # Afterwards we recalculate our number of training epochs
@@ -263,18 +292,26 @@ def main(args):
         accelerator.init_trackers("dreambooth", config=vars(args))
 
     # Train!
-    total_batch_size = args.train_batch_size * accelerator.num_processes * args.gradient_accumulation_steps
+    total_batch_size = (
+        args.train_batch_size
+        * accelerator.num_processes
+        * args.gradient_accumulation_steps
+    )
 
     logger.info("***** Running training *****")
     logger.info(f"  Num examples = {len(train_dataset)}")
     logger.info(f"  Num batches each epoch = {len(train_dataloader)}")
     logger.info(f"  Num Epochs = {args.num_train_epochs}")
     logger.info(f"  Instantaneous batch size per device = {args.train_batch_size}")
-    logger.info(f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}")
+    logger.info(
+        f"  Total train batch size (w. parallel, distributed & accumulation) = {total_batch_size}"
+    )
     logger.info(f"  Gradient Accumulation steps = {args.gradient_accumulation_steps}")
     logger.info(f"  Total optimization steps = {args.max_train_steps}")
     # Only show the progress bar once on each machine.
-    progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
+    progress_bar = tqdm(
+        range(args.max_train_steps), disable=not accelerator.is_local_main_process
+    )
     progress_bar.set_description("Steps")
     global_step = 0
 
@@ -293,7 +330,7 @@ def main(args):
         return target_images
 
     def visualize_dp(im, dp):
-        im = im.transpose((1,2,0))
+        im = im.transpose((1, 2, 0))
         hsv = np.zeros(im.shape, dtype=np.uint8)
         hsv[..., 1] = 255
 
@@ -303,7 +340,7 @@ def main(args):
         hsv[..., 2] = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
         bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
 
-        bgr = bgr.transpose((2,0,1))
+        bgr = bgr.transpose((2, 0, 1))
         return bgr
 
     latest_chkpt_step = 0
@@ -315,20 +352,24 @@ def main(args):
                 first_batch = False
             with accelerator.accumulate(vae):
                 # Convert images to latent space
-                latents = vae.encode(batch["target_frame"].to(dtype=weight_dtype)).latent_dist.sample()
+                latents = vae.encode(
+                    batch["target_frame"].to(dtype=weight_dtype)
+                ).latent_dist.sample()
                 latents = latents * 0.18215
 
                 latents = 1 / 0.18215 * latents
                 pred_images = vae.decode(latents).sample
                 pred_images = pred_images.clamp(-1, 1)
 
-                loss = F.mse_loss(pred_images.float(), batch['target_frame'].clamp(-1, 1).float(), reduction="mean")
+                loss = F.mse_loss(
+                    pred_images.float(),
+                    batch["target_frame"].clamp(-1, 1).float(),
+                    reduction="mean",
+                )
 
                 accelerator.backward(loss)
                 if accelerator.sync_gradients:
-                    params_to_clip = (
-                        itertools.chain(vae.parameters())
-                    )
+                    params_to_clip = itertools.chain(vae.parameters())
                     accelerator.clip_grad_norm_(params_to_clip, args.max_grad_norm)
                 optimizer.step()
                 lr_scheduler.step()
@@ -351,7 +392,7 @@ def main(args):
                 plt.figure()
                 plt.plot(range(len(weights)), weights)
                 plt.title(f"VAE Decoder Weights = {np.mean(weights)}")
-                writer.add_figure('decoder_weights', plt.gcf(), global_step=global_step)
+                writer.add_figure("decoder_weights", plt.gcf(), global_step=global_step)
 
                 # Draw VAE encoder weights
                 weights = vae.encoder.conv_out.weight.cpu().detach().numpy()
@@ -360,14 +401,14 @@ def main(args):
                 plt.figure()
                 plt.plot(range(len(weights)), weights)
                 plt.title(f"Fixed VAE Encoder Weights= {np.mean(weights)}")
-                writer.add_figure('encoder_weights', plt.gcf(), global_step=global_step)
+                writer.add_figure("encoder_weights", plt.gcf(), global_step=global_step)
 
             if global_step == 1 or global_step % 50 == 0:
                 with torch.no_grad():
                     pred_images = inputs2img(pred_images)
                     target = inputs2img(batch["target_frame"])
                     viz = np.concatenate([pred_images[0], target[0]], axis=2)
-                    writer.add_image(f'train/pred_img', viz, global_step=global_step)
+                    writer.add_image(f"train/pred_img", viz, global_step=global_step)
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
@@ -378,7 +419,7 @@ def main(args):
 
             # save model
             if accelerator.is_main_process and global_step % 500 == 0:
-                model_path = args.output_dir+f'/vae_{epoch}.pth'
+                model_path = args.output_dir + f"/vae_{epoch}.pth"
                 torch.save(vae.state_dict(), model_path)
 
         accelerator.wait_for_everyone()
@@ -386,7 +427,7 @@ def main(args):
     # save model
     if accelerator.is_main_process:
         print("Saving final model to ", args.output_dir)
-        model_path = args.output_dir+f'/vae_{epoch}.pth'
+        model_path = args.output_dir + f"/vae_{epoch}.pth"
         torch.save(vae.state_dict(), model_path)
 
     accelerator.end_training()
