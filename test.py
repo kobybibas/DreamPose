@@ -1,16 +1,15 @@
 import os
 import torch
-from diffusers import UNet2DConditionModel, DDIMScheduler
+from diffusers import DDIMScheduler
 from pipelines.dual_encoder_pipeline import StableDiffusionImg2ImgPipeline
 import argparse
 from torchvision import transforms
 import torch
-import cv2, PIL, glob, random
+import cv2, PIL, glob
 import numpy as np
 from torch.cuda.amp import autocast
 from torchvision import transforms
 from collections import OrderedDict
-from torch import nn
 import torch, cv2
 import torch.nn.functional as F
 from models.unet_dual_encoder import get_unet, Embedding_Adapter
@@ -111,6 +110,13 @@ parser.add_argument(
     required=False,
     help="# frames to infer at once.",
 )
+parser.add_argument(
+    "--device",
+    type=str,
+    default="cuda",
+    required=False,
+    help="Device to run on: cuda/cpu",
+)
 args = parser.parse_args()
 
 save_folder = (
@@ -121,7 +127,7 @@ if not os.path.exists(save_folder):
 
 # Load custom model
 model_id = f"{args.folder}/checkpoint-{args.epoch}"  # if args.step > 0 else "CompVis/stable-diffusion-v1-4"
-device = "cpu"  # "cuda"
+device = args.device
 
 # Load UNet
 unet = get_unet(
@@ -182,7 +188,7 @@ if args.custom_vae is not None:
     pipe.vae.load_state_dict(new_state_dict)
     pipe.vae = pipe.vae.to(device)
 
-    if device is "cpu":
+    if device == "cpu":
         pipe.vae = pipe.vae.float()
 
 # Change scheduler
