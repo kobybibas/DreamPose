@@ -149,7 +149,7 @@ def main(args):
 
     if args.gradient_checkpointing:
         unet.enable_gradient_checkpointing()
-        adapter.enable_gradient_checkpointing()
+        # adapter.enable_gradient_checkpointing() # TODO: enable this when gradient checkpointing is enabled in accelerate
 
     if args.scale_lr:
         args.learning_rate = (

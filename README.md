@@ -16,6 +16,10 @@ You can generate a video using DreamPose using our pretrained models.
     ```
     python test.py --epoch 499 --folder demo/custom-chkpts --pose_folder demo/sample/poses  --key_frame_path demo/sample/key_frame.png --s1 8 --s2 3 --n_steps 100 --output_dir demo/sample/results --custom_vae demo/custom-chkpts/vae_1499.pth
     ```
+4. Use fmpeg to create the video
+    ```
+    ffmpeg -framerate 30 -pattern_type glob -i '/demo/sample/results/*.png' -c:v libx264 -pix_fmt yuv420p /demo/sample/results/out.mp4
+    ```
 ## Data Preparation
 
 To prepare a sample for finetuning, create a directory containing train and test subdirectories containing the train frames (desired subject) and test frames (desired pose sequence), respectively. Note that the test frames are not expected to be of the same subject. See demo/sample for an example. 
@@ -39,6 +43,16 @@ In this next step, we finetune DreamPose on a one or more input frames to create
     ```
     accelerate launch finetune-unet.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4" --instance_data_dir=demo/sample/train --output_dir=demo/custom-chkpts --resolution=512 --train_batch_size=1 --gradient_accumulation_steps=1 --learning_rate=1e-5 --num_train_epochs=500 --dropout_rate=0.0 --custom_chkpt=checkpoints/unet_epoch_20.pth --revision "ebb811dd71cdc38a204ecbdd6ac5d580f529fd8c"
     ```
+
+To be able to run it on 16GB GPU, 
+```
+pip install bitsandbytes
+```
+
+Add --gradient_checkpointing --use_8bit_adam
+```
+accelerate launch finetune-unet.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4" --instance_data_dir=demo/sample/train_1 --output_dir=demo/custom-chkpts_train_1 --resolution=512 --train_batch_size=1 --gradient_accumulation_steps=1 --learning_rate=1e-5 --num_train_epochs=500 --dropout_rate=0.0 --custom_chkpt=checkpoints/unet_epoch_20.pth --revision "ebb811dd71cdc38a204ecbdd6ac5d580f529fd8c" --gradient_checkpointing --use_8bit_adam
+```
 
 2. Finetune the VAE decoder
 
