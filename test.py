@@ -176,13 +176,14 @@ if args.custom_vae is not None:
     for k, v in vae_state_dict.items():
         name = k.replace("module.", "")  # name = k[7:] if k[:7] == 'module' else k
 
-        name = name.replace("query.", "to_q.")
-        name = name.replace("key.", "to_k.")
-        name = name.replace("value.", "to_v.")
-        name = name.replace("proj_attn.", "to_out.")
-        name = name.replace(
-            ".mid_block.attentions.0.to_out.", ".mid_block.attentions.0.to_out.0."
-        )
+        # TODO: Running the demo without finetuning: uncomment this
+        # name = name.replace("query.", "to_q.")
+        # name = name.replace("key.", "to_k.")
+        # name = name.replace("value.", "to_v.")
+        # name = name.replace("proj_attn.", "to_out.")
+        # name = name.replace(
+        #     ".mid_block.attentions.0.to_out.", ".mid_block.attentions.0.to_out.0."
+        # )
 
         new_state_dict[name] = v
 

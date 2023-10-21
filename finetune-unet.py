@@ -193,13 +193,13 @@ def main(args):
     if args.tokenizer_name:
         tokenizer = CLIPTokenizer.from_pretrained(
             args.tokenizer_name,
-            revision=args.revision,
+            # revision=args.revision, TODO: uncomment this?
         )
     elif args.pretrained_model_name_or_path:
         tokenizer = CLIPTokenizer.from_pretrained(
             args.pretrained_model_name_or_path,
             subfolder="tokenizer",
-            revision=args.revision,
+            # revision=args.revision, TODO: uncomment this?
         )
 
     train_dataset = DreamPoseDataset(
@@ -212,7 +212,7 @@ def main(args):
 
     def collate_fn(examples):
         frame_i = [example["frame_i"] for example in examples]
-        frame_j = [example["frame_i"] for example in examples]
+        frame_j = [example["frame_j"] for example in examples]
         poses = [example["pose_j"] for example in examples]
 
         # Concat class and instance examples for prior preservation.
@@ -481,7 +481,7 @@ def main(args):
                     tokenizer=tokenizer,
                     image_encoder=accelerator.unwrap_model(clip_encoder),
                     clip_processor=accelerator.unwrap_model(clip_processor),
-                    revision=args.revision,
+                    # revision=args.revision, TODO: uncomment this?
                 )
                 pipeline.save_pretrained(
                     os.path.join(args.output_dir, f"checkpoint-{epoch}")
@@ -502,7 +502,7 @@ def main(args):
             tokenizer=tokenizer,
             image_encoder=accelerator.unwrap_model(clip_encoder),
             clip_processor=accelerator.unwrap_model(clip_processor),
-            revision=args.revision,
+            # revision=args.revision, TODO: uncomment this?
         )
         pipeline.save_pretrained(os.path.join(args.output_dir, f"checkpoint-{epoch}"))
         model_path = args.output_dir + f"/unet_epoch_{epoch}.pth"

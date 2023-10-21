@@ -3,8 +3,10 @@
 
 demo/sample/poses/*
 demo/custom-chkpts/*
-demo/sample/results/pred_*.png
+demo/custom-chkpts*/*
+*/pred_*.png
 *checkpoints/*
+
 
 ### macOS ###
 # General

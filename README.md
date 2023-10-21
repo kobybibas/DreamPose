@@ -44,20 +44,25 @@ In this next step, we finetune DreamPose on a one or more input frames to create
     accelerate launch finetune-unet.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4" --instance_data_dir=demo/sample/train --output_dir=demo/custom-chkpts --resolution=512 --train_batch_size=1 --gradient_accumulation_steps=1 --learning_rate=1e-5 --num_train_epochs=500 --dropout_rate=0.0 --custom_chkpt=checkpoints/unet_epoch_20.pth --revision "ebb811dd71cdc38a204ecbdd6ac5d580f529fd8c"
     ```
 
-To be able to run it on 16GB GPU, 
-```
-pip install bitsandbytes
-```
+    To be able to run it on 16GB GPU, 
+    ```
+    pip install bitsandbytes
+    ```
 
-Add --gradient_checkpointing --use_8bit_adam
-```
-accelerate launch finetune-unet.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4" --instance_data_dir=demo/sample/train_1 --output_dir=demo/custom-chkpts_train_1 --resolution=512 --train_batch_size=1 --gradient_accumulation_steps=1 --learning_rate=1e-5 --num_train_epochs=500 --dropout_rate=0.0 --custom_chkpt=checkpoints/unet_epoch_20.pth --revision "ebb811dd71cdc38a204ecbdd6ac5d580f529fd8c" --gradient_checkpointing --use_8bit_adam
-```
+    Add --gradient_checkpointing --use_8bit_adam
+    ```
+    accelerate launch finetune-unet.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4" --instance_data_dir=demo/sample/train_1 --output_dir=demo/custom-chkpts_train_1 --resolution=512 --train_batch_size=1 --gradient_accumulation_steps=1 --learning_rate=1e-5 --num_train_epochs=500 --dropout_rate=0.0 --custom_chkpt=checkpoints/unet_epoch_20.pth --gradient_checkpointing --use_8bit_adam
+    ```
 
 2. Finetune the VAE decoder
 
     ```
     accelerate launch --num_processes=1 finetune-vae.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4"  --instance_data_dir=demo/sample/train --output_dir=demo/custom-chkpts --resolution=512  --train_batch_size=4 --gradient_accumulation_steps=4 --learning_rate=5e-5 --num_train_epochs=1500 --run_name finetuning/ubc-vae --revision "ebb811dd71cdc38a204ecbdd6ac5d580f529fd8c"
+    ```
+
+    Finetuning on demo/sample/train_1 directory
+    ```
+    accelerate launch --num_processes=1 finetune-vae.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4"  --instance_data_dir=demo/sample/train_1 --output_dir=demo/custom-chkpts_train_1 --resolution=512  --train_batch_size=4 --gradient_accumulation_steps=4 --learning_rate=5e-5 --num_train_epochs=1500 --run_name finetuning/ubc-vae --revision "ebb811dd71cdc38a204ecbdd6ac5d580f529fd8c"
     ```
 
 ## Testing
@@ -66,6 +71,11 @@ Once you have finetuned your custom, subject-specific DreamPose model, you can g
 
 ```
 python test.py --epoch 499 --folder demo/custom-chkpts --pose_folder demo/sample/poses  --key_frame_path demo/sample/key_frame.png --s1 8 --s2 3 --n_steps 100 --output_dir results --custom_vae demo/custom-chkpts/vae_1499.pth
+```
+
+Inference on train_1 directory
+```
+python test.py --epoch 499 --folder demo/custom-chkpts --pose_folder demo/sample/poses  --key_frame_path demo/sample/train_1/zara_image1.png --s1 8 --s2 3 --n_steps 100 --output_dir results --custom_vae demo/custom-chkpts_train_1/vae_1499.pth
 ```
 
 ### Acknowledgment
