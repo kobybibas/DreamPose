@@ -78,6 +78,43 @@ Inference on train_1 directory
 python test.py --epoch 499 --folder demo/custom-chkpts --pose_folder demo/sample/poses  --key_frame_path demo/sample/train_1/zara_image1.png --s1 8 --s2 3 --n_steps 100 --output_dir results --custom_vae demo/custom-chkpts_train_1/vae_1499.pth
 ```
 
+# End2End
+
+Train+infenrece on train_2 directory
+```
+accelerate launch finetune-unet.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4" --instance_data_dir=demo/sample/train_1 --output_dir=demo/custom-chkpts_train_1 --resolution=512 --train_batch_size=1 --gradient_accumulation_steps=1 --learning_rate=1e-5 --num_train_epochs=500 --dropout_rate=0.0 --custom_chkpt=checkpoints/unet_epoch_20.pth --gradient_checkpointing --use_8bit_adam;\
+\
+accelerate launch --num_processes=1 finetune-vae.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4"  --instance_data_dir=demo/sample/train_1 --output_dir=demo/custom-chkpts_train_1 --resolution=512  --train_batch_size=4 --gradient_accumulation_steps=4 --learning_rate=5e-5 --num_train_epochs=1500 --run_name finetuning/ubc-vae --revision "ebb811dd71cdc38a204ecbdd6ac5d580f529fd8c"
+ustom-chkpts_train_1; \
+\
+python test.py --epoch 499 --folder demo/custom-chkpts_train_1 --pose_folder demo/sample/poses  --key_frame_path demo/sample/train_1/zara_image1.png --s1 8 --s2 3 --n_steps 100 --output_dir results_train_1 --custom_vae demo/custom-chkpts_train_1/vae_1499.pth;
+\
+ffmpeg -r 15 -start_number 50 -i results_train_1/pred_%03d.png -c:v libx264 -r 30 -pix_fmt yuv420p results_train_1/out.mp4; \
+ffmpeg -r 15 -start_number 100 -i results_train_1/pred_%03d.png -c:v libx264 -r 30 -pix_fmt yuv420p results_train_1/out1.mp4
+```
+
+Train+infenrece on train_2 directory
+```
+accelerate launch finetune-unet.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4" --instance_data_dir=demo/sample/train_2 --output_dir=demo/custom-chkpts_train_2 --resolution=512 --train_batch_size=1 --gradient_accumulation_steps=1 --learning_rate=1e-5 --num_train_epochs=500 --dropout_rate=0.0 --custom_chkpt=checkpoints/unet_epoch_20.pth --gradient_checkpointing --use_8bit_adam; \ 
+\
+accelerate launch --num_processes=1 finetune-vae.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4"  --instance_data_dir=demo/sample/train_2 --output_dir=demo/custom-chkpts_train_2 --resolution=512  --train_batch_size=4 --gradient_accumulation_steps=4 --learning_rate=5e-5 --num_train_epochs=1500 --run_name finetuning/ubc-vae --revision "ebb811dd71cdc38a204ecbdd6ac5d580f529fd8c"
+ustom-chkpts_train_2; \
+\
+python test.py --epoch 499 --folder demo/custom-chkpts_train_2 --pose_folder demo/sample/poses  --key_frame_path demo/sample/train_2/zara_image2.png --s1 8 --s2 3 --n_steps 100 --output_dir results_train_2 --custom_vae demo/custom-chkpts_train_2/vae_1499.pth;
+\
+ffmpeg -r 15 -start_number 50 -i results_train_2/pred_%03d.png -c:v libx264 -r 30 -pix_fmt yuv420p results_train_2/out.mp4; \
+ffmpeg -r 15 -start_number 100 -i results_train_2/pred_%03d.png -c:v libx264 -r 30 -pix_fmt yuv420p results_train_2/out1.mp4
+```
+
+Train+infenrece on train_3 directory
+```
+accelerate launch finetune-unet.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4" --instance_data_dir=demo/sample/train_3 --output_dir=demo/custom-chkpts_train_3 --resolution=512 --train_batch_size=1 --gradient_accumulation_steps=1 --learning_rate=1e-5 --num_train_epochs=500 --dropout_rate=0.0 --custom_chkpt=checkpoints/unet_epoch_20.pth --gradient_checkpointing --use_8bit_adam
+
+accelerate launch --num_processes=1 finetune-vae.py --pretrained_model_name_or_path="CompVis/stable-diffusion-v1-4"  --instance_data_dir=demo/sample/train_3 --output_dir=demo/custom-chkpts_train_3 --resolution=512  --train_batch_size=4 --gradient_accumulation_steps=4 --learning_rate=5e-5 --num_train_epochs=1500 --run_name finetuning/ubc-vae --revision "ebb811dd71cdc38a204ecbdd6ac5d580f529fd8c"
+ustom-chkpts_train_3
+python test.py --epoch 499 --folder demo/custom-chkpts_train_3 --pose_folder demo/sample/poses  --key_frame_path demo/sample/train_3/zara_image3.png --s1 8 --s2 3 --n_steps 100 --output_dir results_train_3 --custom_vae demo/custom-chkpts_train_3/vae_1499.pth
+``````
+
 ### Acknowledgment
 
 This code is largely adapted from the [Hugging Face diffusers repo](https://github.com/huggingface/diffusers).

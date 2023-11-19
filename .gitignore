@@ -6,6 +6,7 @@ demo/custom-chkpts/*
 demo/custom-chkpts*/*
 */pred_*.png
 *checkpoints/*
+*.mp4
 
 
 ### macOS ###

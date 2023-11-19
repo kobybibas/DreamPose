@@ -292,7 +292,7 @@ for i, pose_path in enumerate(pose_paths):
         )[0][0]
 
         # Save pose and image
-        save_path = f"{save_folder}/pred_#{j}.png"
+        save_path = f"{save_folder}/pred_{j:03}.png"
         image = image.convert("RGB")
         image = np.array(image)
         image = image - np.min(image)
